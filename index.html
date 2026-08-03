@@ -10,8 +10,8 @@
 
         // Supabaseの設定
         const SUPABASE_URL = 'https://imrblbkkpnjxfybayzmb.supabase.co';
-        const SUPABASE_ANON_KEY = 'sb_publishable_X7g7oDXAye8StMaE9ro9IA_24Qybzst'; 
-        
+        const SUPABASE_ANON_KEY = 'sb_publishable_X7g7oDXAye8StMaE9ro9IA_24Qybzst';
+
         const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         window.supabase = supabase;
     </script>
@@ -30,7 +30,7 @@
     <main class="flex-grow max-w-3xl w-full mx-auto p-4 flex flex-col justify-center">
 
         <!-- 認証画面（未ログイン時） -->
-        <div id="auth-container" class="bg-white p-6 rounded-xl shadow-md space-y-4">
+        <div id="auth-screen" class="bg-white p-6 rounded-xl shadow-md space-y-4">
             <h2 class="text-xl font-bold text-center text-slate-700">ログイン / アカウント作成</h2>
             <p class="text-xs text-slate-500 text-center">学習履歴をクラウド保存するため、メールアドレスでログインしてください。</p>
             <div>
@@ -48,12 +48,21 @@
             <p id="auth-msg" class="text-sm text-center text-red-500 mt-2"></p>
         </div>
 
-        <!-- ダッシュボード（ログイン後） -->
-        <div id="app-container" class="hidden space-y-6">
+        <!-- 開始画面（ダッシュボード） -->
+        <div id="start-screen" class="hidden space-y-6">
             <div class="bg-white p-6 rounded-xl shadow-md text-center space-y-4">
                 <h2 class="text-2xl font-bold text-slate-700">機械安全・リスクアセスメント編</h2>
                 <p class="text-sm text-slate-500">規格（ISO 12100 / IEC 61508等）や安全法規に関する模擬試験です。</p>
-                <button onclick="startQuiz()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold text-lg hover:bg-indigo-700 transition shadow">模擬試験を開始する</button>
+
+                <div class="text-left">
+                    <label class="block text-sm font-medium text-slate-600 mb-1">出題セクション</label>
+                    <select id="section-select" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                        <option value="all">全セクション（ランダム）</option>
+                    </select>
+                </div>
+
+                <button onclick="startExam()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold text-lg hover:bg-indigo-700 transition shadow">模擬試験を開始する</button>
+                <button id="admin-open-btn" onclick="showAdminDashboard()" class="hidden w-full bg-slate-700 text-white py-2 rounded-xl font-medium hover:bg-slate-800 transition">管理者ダッシュボード</button>
                 <button onclick="handleLogout()" class="text-xs text-slate-400 hover:text-slate-600 underline">ログアウト</button>
             </div>
 
@@ -64,14 +73,14 @@
             </div>
         </div>
 
-        <!-- クイズ画面 -->
-        <div id="quiz-container" class="hidden bg-white p-6 rounded-xl shadow-md space-y-4">
+        <!-- 試験画面 -->
+        <div id="exam-screen" class="hidden bg-white p-6 rounded-xl shadow-md space-y-4">
             <div class="flex justify-between text-sm text-slate-400">
                 <span id="question-progress">問題 1 / 5</span>
                 <span id="question-category">安全法規</span>
             </div>
             <h3 id="question-text" class="text-lg font-bold text-slate-800">問題文がここに入ります。</h3>
-            <div id="options-container" class="space-y-2">
+            <div id="options" class="space-y-2">
                 <!-- 選択肢ボタンが動的に入ります -->
             </div>
             <div id="explanation-box" class="hidden p-4 bg-slate-50 rounded-lg text-sm space-y-2 border">
@@ -81,78 +90,388 @@
         </div>
 
         <!-- 結果画面 -->
-        <div id="result-container" class="hidden bg-white p-6 rounded-xl shadow-md text-center space-y-4">
+        <div id="result-screen" class="hidden bg-white p-6 rounded-xl shadow-md text-center space-y-4">
             <h2 class="text-2xl font-bold text-slate-700">試験終了！</h2>
-            <p class="text-xl font-semibold text-indigo-600" id="result-score">正答率: 80% (4 / 5)</p>
-            <p class="text-sm text-slate-500">成績がSupabaseに保存されました。</p>
+            <p id="score-text" class="text-xl font-semibold text-indigo-600 whitespace-pre-line">正答率: 80% (4 / 5)</p>
+            <p id="result-save-msg" class="text-sm text-slate-500">成績がSupabaseに保存されました。</p>
             <button onclick="returnToDashboard()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition">ダッシュボードに戻る</button>
+        </div>
+
+        <!-- 管理者ダッシュボード画面 -->
+        <div id="admin-screen" class="hidden space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-md">
+                <h2 class="text-2xl font-bold text-slate-700 mb-4">管理者ダッシュボード</h2>
+                <div class="grid grid-cols-3 gap-4 text-center">
+                    <div class="bg-slate-50 p-4 rounded-lg">
+                        <p class="text-sm text-slate-500">総テスト数</p>
+                        <p id="total-tests" class="text-2xl font-bold text-indigo-600">0</p>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-lg">
+                        <p class="text-sm text-slate-500">参加ユーザー</p>
+                        <p id="total-users" class="text-2xl font-bold text-indigo-600">0</p>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-lg">
+                        <p class="text-sm text-slate-500">平均正答率</p>
+                        <p id="avg-score" class="text-2xl font-bold text-indigo-600">0%</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-md overflow-x-auto">
+                <h3 class="font-bold text-slate-700 mb-3">成績一覧</h3>
+                <table class="w-full">
+                    <thead>
+                        <tr class="border-b text-left text-xs text-slate-500">
+                            <th class="p-3">ユーザー</th>
+                            <th class="p-3">セクション</th>
+                            <th class="p-3">スコア</th>
+                            <th class="p-3">受験日時</th>
+                        </tr>
+                    </thead>
+                    <tbody id="admin-scores-table">
+                        <!-- 行が動的に入ります -->
+                    </tbody>
+                </table>
+            </div>
+
+            <button onclick="backToMain()" class="w-full bg-slate-200 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-300 transition">メイン画面に戻る</button>
         </div>
 
     </main>
 
     <script>
+        // ============================================================
+        // グローバル状態（listkeep.js 相当）
+        // ============================================================
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let currentQuestions = [];
+        let currentSectionName = "全セクション";
+        let currentUser = null;
+
+        // ============================================================
+        // 問題データ（questions.js 相当）
+        // ============================================================
         const questions = [
-            {
-                category: "安全法規・規格",
-                text: "機械安全の基本概念に関する国際規格で、リスクアセスメントおよびリスク低減の原則を規定しているものはどれか。",
-                options: ["ISO 12100", "ISO 13849-1", "IEC 61508", "ISO 14001"],
-                answer: 0,
-                explanation: "ISO 12100は、機械の設計に関する包括的な安全基準であり、リスクアセスメントとリスク低減の基本概念を規定しています。"
-            },
-            {
-                category: "リスクアセスメント",
-                text: "リスク低減方策の優先順位において、最初に検討すべきものはどれか。",
-                options: ["使用上の情報（警告など）", "付加保護方策（インターロック等）", "本質安全設計方策", "保護具の着用"],
-                answer: 2,
-                explanation: "3段階ステップの原則に基づき、まずは機械自体に危険源を除去・低減させる「本質安全設計方策」を最優先で検討します。"
-            },
-            {
-                category: "機能安全",
-                text: "制御システムの安全関連部に求められる信頼性や耐故障性を表す指標として、ISO 13849-1で規定されているものはどれか。",
-                options: ["SIL (Safety Integrity Level)", "PL (Performance Level)", "MTBF", "IPコード"],
-                answer: 1,
-                explanation: "ISO 13849-1では、カテゴリと合わせてパフォーマンスレベル（PL a〜e）を用いて安全関連制御系統の能力を評価します。"
-            },
-            {
-                category: "リスクアセスメント",
-                text: "危険源の特定（ハザード・アイデンティフィケーション）において考慮すべき事項として、不適切なものはどれか。",
-                options: ["機械の意図した使用", "予見可能な誤使用", "機械のライフサイクルの全フェーズ", "オペレーターの年齢・性別"],
-                answer: 3,
-                explanation: "リスクアセスメントでは、意図した使用や予見可能な誤使用、ライフサイクル全般を考慮しますが、個人の属性（年齢や性別など）は対象外です。"
-            },
-            {
-                category: "安全法規・規格",
-                text: "労働安全衛生法において、特定の機械等に対して製造段階での検査や安全基準の適合を義務付けている制度はどれか。",
-                options: ["型式検定", "CEマーキング", "ISO認証", "PL法適用"],
-                answer: 0,
-                explanation: "危険性の高い機械等については、構造や性能が基準に適合しているかを確認する「型式検定」が義務付けられています。"
-            }
+            // ==========================================
+            // セクション 1: 労働安全衛生法規・安全管理体制 (1〜40)
+            // ==========================================
+            { id: 1, section: "法規・管理体制", question: "労働安全衛生法の目的として正しいものはどれか。", options: ["企業の利益の最大化", "労働者の安全と健康の確保及び快適な職場環境の形成", "機械設備の生産効率の向上", "労働時間の無制限な短縮"], answer: 1, explanation: "安衛法第1条に定められている通り、労働者の安全と健康の確保が目的です。" },
+            { id: 2, section: "法規・管理体制", question: "総括安全衛生管理者の選任が必要な製造業の事業場規模はどれか。", options: ["常時10人以上", "常時50人以上", "常時100人以上", "常時300人以上"], answer: 3, explanation: "製造業等では常時300人以上の労働者を使用する場合に選任義務があります。" },
+            { id: 3, section: "法規・管理体制", question: "安全管理者の資格要件として正しいものはどれか。", options: ["誰でも選任できる", "厚生労働大臣が定める研修を修了した者等一定の要件を満たす者", "労働者代表の投票で選ばれた者", "医師免許を持つ者"], answer: 1, explanation: "安全管理者は厚生労働大臣が定める基準エンマ等を満たす専門的知識を有する者から選任します。" },
+            { id: 4, section: "法規・管理体制", question: "衛生管理者の選任が必要となる事業場の労働者数はどれか。", options: ["常時10人以上", "常時50人以上", "常時100人以上", "常時300人以上"], answer: 1, explanation: "常時50人以上の労働者を使用する事業場では衛生管理者の選任が必要です。" },
+            { id: 5, section: "法規・管理体制", question: "産業医の選任が必要な事業場の労働者数はどれか。", options: ["常時10人以上", "常時50人以上", "常時100人以上", "常時500人以上"], answer: 1, explanation: "常時50人以上の労働者を使用する事業場に産業医の選任義務があります。" },
+            { id: 6, section: "法規・管理体制", question: "安全委員会の開催頻度として法令で定められているものはどれか。", options: ["毎月1回以上", "四半期に1回以上", "半年に1回以上", "1年に1回以上"], answer: 0, explanation: "安全委員会及び衛生委員会は、毎月1回以上開催しなければなりません。" },
+            { id: 7, section: "法規・管理体制", question: "リスクアセスメントの実施を事業者に義務付けている安衛法の条文に関連する規定はどれか。", options: ["第10条", "第28条の2", "第56条", "第90条"], answer: 1, explanation: "安衛法第28条の2においてリスクアセスメントの実施が規定されています。" },
+            { id: 8, section: "法規・管理体制", question: "労働災害が発生した際、事業者が遅滞なく行わなければならないことはどれか。", options: ["警察への刑事告発", "労働基準監督署への死傷病報告の提出", "マスコミへの公表", "全社員へのメール通知"], answer: 1, explanation: "労働者死傷病報告を所轄労働署長に提出しなければなりません。" },
+            { id: 9, section: "法規・管理体制", question: "ボイラーやクレーンなどの特定機械等について、製造や設置時に必要な手続きはどれか。", options: ["特になし", "所轄労働基準監督署長の検査や許可・認可", "市町村長への届出", "日本商工会議所への登録"], answer: 1, explanation: "危険性の高い特定機械等は検査や許可等の規制を受けます。" },
+            { id: 10, section: "法規・管理体制", question: "作業主任者を選任しなければならない作業はどれか。", options: ["すべての事務作業", "高圧室内作業やボイラー取扱作業などの危険・有害な作業", "一般的なパソコン入力作業", "社内清掃作業"], answer: 1, explanation: "法令で定める特定の危険・有害業務には作業主任者の選任が義務づけられています。" },
+            { id: 11, section: "法規・管理体制", question: "事業者側の安全配慮義務について正しいものはどれか。", options: ["労働者が自己責任で負うべきもの", "労働者の生命及び身体等を危険から保護するよう配慮する義務", "利益が出たときだけ履行すればよい義務", "事故が起きた後に対処する義務"], answer: 1, explanation: "労働契約法等において事業者の安全配慮義務が明確に定められています。" },
+            { id: 12, section: "法規・管理体制", question: "安全衛生教育のうち、新規採用時に行わなければならないものはどれか。", options: ["特別教育", "雇入れ時の安全衛生教育", "職長等教育", "管理者のための講習"], answer: 1, explanation: "新たに労働者を雇い入れたときは、その者に対し安全衛生教育を行わなければなりません。" },
+            { id: 13, section: "法規・管理体制", question: "危険又は有害な業務に労働者をつかわせる際、特別な教育が必要なものを何と呼ぶか。", options: ["一般教育", "特別教育", "義務教育", "追加教育"], answer: 1, explanation: "危険有害業務には「特別教育」の実施が義務付けられています。" },
+            { id: 14, section: "法規・管理体制", question: "JIS規格（日本産業規格）の制定・管理を行っている機関はどれか。", options: ["日本規格協会 (JSA)", "日本医師会", "日本弁護士連合会", "日本銀行"], answer: 0, explanation: "JISは日本産業標準調査会の調査審議を経て主務大臣が制定します。" },
+            { id: 15, section: "法規・管理体制", question: "ISO 45001が規定しているマネジメントシステムの名称はどれか。", options: ["品質マネジメントシステム", "労働安全衛生マネジメントシステム", "環境マネジメントシステム", "情報セキュリティマネジメントシステム"], answer: 1, explanation: "ISO 45001は労働安全衛生マネジメントシステムの国際規格です。" },
+            { id: 16, section: "法規・管理体制", question: "安全衛生方針を表明する責任者は誰か。", options: ["現場の作業員", "最高経営責任者（トップマネジメント）", "労働組合の代表", "保守点検業者"], answer: 1, explanation: "トップマネジメントが安全衛生方針を表明し、主導する責任を持ちます。" },
+            { id: 17, section: "法規・管理体制", question: "安全パトロールの主な目的として正しいものはどれか。", options: ["従業員を叱責すること", "不安全行動や不安全状態を発見し改善すること", "ノルマを達成させること", "生産スピードを上げるための指示"], answer: 1, explanation: "現場の潜む危険を早期に発見・改善することがパトロールの目的です。" },
+            { id: 18, section: "法規・管理体制", question: "ヒヤリ・ハット（インシデント）活動の重要性として正しいものはどれか。", options: ["報告する必要はない", "重大事故の未然防止（ハインリッヒの法則の活用）につながる", "罰則を科すために行う", "個人のミスを追求するためのもの"], answer: 1, explanation: "重大事故の背景にある多数のヒヤリハットを摘み取ることが重要です。" },
+            { id: 19, section: "法規・管理体制", question: "安全監査の主な役割はどれか。", options: ["法規や社内基準が正しく守られているか客観的に評価すること", "経理の不正を見つけること", "新しい製品のデザインを審査すること", "採用面接を行うこと"], answer: 0, explanation: "安全管理体制や実施状況が適切に機能しているか評価・監査します。" },
+            { id: 20, section: "法規・管理体制", question: "労働者の健康診断結果について、事業者が行わなければならないことはどれか。", options: ["全社に公開する", "本人に通知し、必要な場合は医師の意見を聴取して就業上の措置を講じる", "破棄する", "特に何もしなくてよい"], answer: 1, explanation: "健康診断の結果に基づき、必要に応じて適切な事後措置を行う義務があります。" },
+            { id: 21, section: "法規・管理体制", question: "ストレスチェック制度の実施が義務付けられている事業場の規模はどれか。", options: ["常時10人以上", "常時50人以上", "常時100人以上", "常時300人以上"], answer: 1, explanation: "常時50人以上の労働者を使用する事業場に実施義務があります。" },
+            { id: 22, section: "法規・管理体制", question: "過重労働による健康障害防止のため、時間外・休日労働時間が一定時間を超えた労働者への面接指導を行う医師は誰か。", options: ["会社の社長", "産業医等", "人事部長", "現場の直属の上司"], answer: 1, explanation: "長時間労働者に対する医師による面接指導が定められています。" },
+            { id: 23, section: "法規・管理体制", question: "安全衛生管理計画の策定において重要なことはどれか。", options: ["形骸化させ、実行しないこと", "目標を明確にし、実施項目・担当者・期限を定めること", "予算を一切かけないこと", "他社のコピーをそのまま使うこと"], answer: 1, explanation: "実行可能で具体的な目標や計画を策定することが不可欠です。" },
+            { id: 24, section: "法規・管理体制", question: "災害発生時の緊急体制（防災・BCP）について正しいものはどれか。", options: ["起きてから考える", "事前に手順を定め、訓練を実施しておく", "訓練は不要である", "すべて消防に任せればよい"], answer: 1, explanation: "万一の災害に備え、事前の手順策定と定期的な訓練が必要です。" },
+            { id: 25, section: "法規・管理体制", question: "元方事業者の講ずべき措置として、関係請負人の労働者に対する安全衛生上の教育への協力はどのように扱われるか。", options: ["協力する義務がある", "一切関与してはならない", "下請けの責任であるため無視する", "金銭を支払うだけでよい"], answer: 0, explanation: "混合作業時の事故を防ぐため、元方事業者は総合的な安全衛生管理を行います。" },
+            { id: 26, section: "法規・管理体制", question: "機械器具等の譲渡等の制限において、安全基準を満たさない機械の扱いはどうなるか。", options: ["自由にいじってよい", "譲渡、貸与、設置等をしてはならない", "安ければ販売してよい", "海外に輸出するなら問題ない"], answer: 1, explanation: "防護措置などの基準に適合しない機械は譲渡等が禁止されています。" },
+            { id: 27, section: "法規・管理体制", question: "安全標識の色と意味の組合せとして、JIS規格で正しいものはどれか。", options: ["赤色＝安全・救急", "黄色＝注意・警告", "緑色＝禁止・防火", "青色＝非常停止"], answer: 1, explanation: "黄色は警告、赤色は禁止・非常停止、緑色は安全・救急を示します。" },
+            { id: 28, section: "法規・管理体制", question: "保護帽（ヘルメット）の着用が必要とされる作業はどれか。", options: ["事務室での書類整理", "物体の飛来・落下又は墜落による危険のある作業", "地上での軽い歩行", "会議室での打ち合わせ"], answer: 1, explanation: "飛来・落下や墜落リスクのある場所では保護帽の着用が義務付けられます。" },
+            { id: 29, section: "法規・管理体制", question: "安全靴を着用する主な目的はどれか。", options: ["ファッション性のため", "足先の重物落下や釘踏み抜き等の危険から保護するため", "走るスピードを上げるため", "水虫を予防するため"], answer: 1, explanation: "足部への衝撃や穿刺を防止するために安全靴を着用します。" },
+            { id: 30, section: "法規・管理体制", question: "フルハーネス型の墜落制止用器具を使用すべき高さの基準（原則）はどれか。", options: ["高さ1m以上", "高さ2m以上（作業床を設けることが困難な場所など）", "高さ5m以上", "高さ10m以上"], answer: 1, explanation: "原則として高さ2m以上の作業床の端や開口部等で墜落制止用器具（フルハーネス型）を使用します。" },
+            { id: 31, section: "法規・管理体制", question: "安全文化（Safety Culture）の醸成において最も大切な基盤はどれか。", options: ["お互いの信頼関係とオープンなコミュニケーション", "違反者への過酷な処罰の徹底", "ルールを一切作らないこと", "すべてをAIに判断させること"], answer: 0, explanation: "心理的安全性が高く、誰もが安全について発言できる組織風土が不可欠です。" },
+            { id: 32, section: "法規・管理体制", question: "リスクアセスメントを法令上義務付ける背景にある考え方はどれか。", options: ["事後対応型（起きてから直す）", "本質的安全化・予防的アプローチ（未然防止）", "運任せの管理", "コスト削減最優先の思想"], answer: 1, explanation: "潜在的な危険をあらかじめ見つけ出し、未然に防ぐ予防的アプローチが基本です。" },
+            { id: 33, section: "法規・管理体制", question: "安全衛生の継続的改善（PDCAサイクル）における「P」は何を指すか。", options: ["Perfect（完璧）", "Plan（計画）", "Process（工程）", "Price（価格）"], answer: 1, explanation: "Plan（計画）、Do（実行）、Check（評価）、Act（改善）のPです。" },
+            { id: 34, section: "法規・管理体制", question: "安全に関する「労働者の義務」として正しいものはどれか。", options: ["安全基準を守らなくてもよい", "事業者が講ずる安全衛生に関する措置に協力しなければならない", "すべての責任を会社に押し付ける", "安全教育を拒否する"], answer: 1, explanation: "労働者も事業者の安全措置に協力する義務があります。" },
+            { id: 35, section: "法規・管理体制", question: "ボイラー技士やクレーン運転士などの免許試験を行う機関はどれか。", options: ["中央労働災害防止協会 (中災防)", "安全衛生技術試験協会", "日本工業協会", "経済産業省"], answer: 1, explanation: "安全衛生技術試験協会が全国の安全衛生技術センターで免許試験を実施しています。" },
+            { id: 36, section: "法規・管理体制", question: "安全スローガンやKYT（危険予知訓練）を行う主な目的はどれか。", options: ["作業者の安全意識の向上と感受性の高揚", "作業時間を遅らせること", "書類を増やすこと", "形骸化させること"], answer: 1, explanation: "日々のKYT等を通じて危険に対する感受性を高めます。" },
+            { id: 37, section: "法規・管理体制", question: "安全衛生管理規程の作成は、どのような規模の事業場で必要か。", options: ["どのような規模でも作成・周知することが望ましい（常時10人以上では作成義務あり）", "1000人以上のみ", "必要ない", "社長の気分次第"], answer: 0, explanation: "常時10人以上の労働者を使用する事業場では安全衛生管理規程の作成等が必要です。" },
+            { id: 38, section: "法規・管理体制", question: "安全活動における「ゼロ災運動」の3つの基本原則に含まれないものはどれか。", options: ["ゼロの原則", "先取りの原則", "参加の原則", "強制の原則"], answer: 3, explanation: "ゼロ災運動の3原則は「ゼロの原則」「先取りの原則」「参加の原則」です。" },
+            { id: 39, section: "法規・管理体制", question: "安全表彰やインセンティブ制度の目的として適切なものはどれか。", options: ["事故を隠蔽させること", "安全活動のモチベーション向上と模範の奨励", "コストを浪費すること", "不安全行動を見逃すこと"], answer: 1, explanation: "優れた安全活動や無災害記録を称え、モチベーションを高めます。" },
+            { id: 40, section: "法規・管理体制", question: "安全コンサルタントの主な業務はどれか。", options: ["企業の安全衛生水準の診断及び改善のアドバイス", "製品の販売営業", "税務申告の代行", "社員の採用面接"], answer: 0, explanation: "専門的知識に基づき事業場の安全衛生診断や指導を行います。" },
+
+            // ==========================================
+            // セクション 2: リスクアセスメントと法的要求事項 (41〜90)
+            // ==========================================
+            { id: 41, section: "リスクアセスメント", question: "リスクアセスメントの最初のステップはどれか。", options: ["リスク低減措置の実施", "危険性又は有害性の特定", "リスクの評価", "記録の保存"], answer: 1, explanation: "まず危険源を見つけ出して特定することから始まります。" },
+            { id: 42, section: "リスクアセスメント", question: "リスクアセスメントにおける「リスク」の定義として正しいものはどれか。", options: ["事故が起きた事実そのもの", "害の生じる可能性（確率）と、その害の重大さ（重篤度）の組み合わせ", "機械の価格の高さ", "作業の難易度"], answer: 1, explanation: "リスク ＝ 重篤度 × 発生可能性 で表されます。" },
+            { id: 43, section: "リスクアセスメント", question: "リスクの見積もりにおいて考慮すべき要素の組み合わせはどれか。", options: ["コストと納期", "害の重篤度と、その害が生じる可能性", "作業員の人数と年齢", "機械の製造年式とメーカー名"], answer: 1, explanation: "重篤度と可能性の2つの軸でリスクを見積もります。" },
+            { id: 44, section: "リスクアセスメント", question: "リスク低減措置の優先順位（3ステップメソッド）の第1ステップはどれか。", options: ["個人用保護具の着用", "本質安全設計方策", "警告表示やマニュアルの整備", "安全囲い（ガード）の設置"], answer: 1, explanation: "第1ステップは本質安全設計方策です。" },
+            { id: 45, section: "リスクアセスメント", question: "リスク低減措置の優先順位の第2ステップに含まれるものはどれか。", options: ["危険源の完全な除去", "インターロックやガード等の工学的対策（付加保護方策）", "作業者への口頭注意", "保護具のみ頼ること"], answer: 1, explanation: "第2ステップは安全ガードや保護装置などの工学的対策です。" },
+            { id: 46, section: "リスクアセスメント", question: "リスク低減措置の優先順位の第3ステップに含まれるものはどれか。", options: ["機械の構造変更", "使用上の情報（取扱説明書、警告、保護具の着用等）", "インターロックの追加", "エネルギー源の小型化"], answer: 1, explanation: "第3ステップは警告や取扱説明書、保護具などの使用上の情報です。" },
+            { id: 47, section: "リスクアセスメント", question: "リスクアセスメントの対象に含めるべき作業・状況はどれか。", options: ["通常の運転時のみ", "非定常作業（保守、点検、清掃、調整、トラブルシューティングなど）も含む", "事務作業のみ", "工場外の移動のみ"], answer: 1, explanation: "定常作業だけでなく、点検や清掃などの非定常作業にリスクが潜んでいるため必ず対象とします。" },
+            { id: 48, section: "リスクアセスメント", question: "リスク評価の結果、許容できないリスクと判断された場合に行うべきことはどれか。", options: ["そのまま放置する", "追加のリスク低減措置を講じて許容可能なレベルまで下げる", "作業を禁止して工場を閉鎖する", "誰も近づかないように鍵をかける"], answer: 1, explanation: "許容できないリスクは追加の低減措置を実施しなければなりません。" },
+            { id: 49, section: "リスクアセスメント", question: "危険源（ハザード）の例として適切でないものはどれか。", options: ["挟まれやすい回転軸", "高温の表面", "安全に停止した平らな床", "感電の危険がある露呈した充電部"], answer: 2, explanation: "安全に停止した平らな床は通常危険源とはみなされません。" },
+            { id: 50, section: "リスクアセスメント", question: "リスクアセスメントの実施プロセスへの労働者の参加について正しいものはどれか。", options: ["労働者は参加させなくてよい", "現場の実態を熟知している労働者を参加させることが極めて重要である", "経営者だけで決めるべきである", "外部コンサルタントだけで行うべきである"], answer: 1, explanation: "現場の実態を反映させるため、現場作業員の参加が不可欠です。" },
+            { id: 51, section: "リスクアセスメント", question: "定量的リスクアセスメントと定性的リスクアセスメントの違いに関する説明として正しいものはどれか。", options: ["定量は数値や確率を用いて評価し、定性はランク等を用いて相対的に評価する", "定性の方が常に正確である", "定量評価は法律で禁止されている", "両者に違いはない"], answer: 0, explanation: "手法や目的に応じて数値化する定量評価と、マトリクス等でランク付けする定性評価を使い分けます。" },
+            { id: 52, section: "リスクアセスメント", question: "リスクマトリクスを用いる際の主なメリットはどれか。", options: ["リスクの大小を視覚的かつ分かりやすく比較・判断できる", "計算が一切不要になる", "必ず事故をゼロにできる", "機械の性能が向上する"], answer: 0, explanation: "重篤度と可能性の掛け合わせをマトリクスで視覚的に把握できます。" },
+            { id: 53, section: "リスクアセスメント", question: "残留リスク（Residual Risk）とは何か。", options: ["完全にゼロになったリスク", "リスク低減措置を講じた後に残るリスク", "全く考慮しなかったリスク", "架空のリスク"], answer: 1, explanation: "低減措置を実施した後にどうしても残ってしまうリスクを残留リスクと呼びます。" },
+            { id: 54, section: "リスクアセスメント", question: "残留リスクに関する事業者側の義務として正しいものはどれか。", options: ["労働者にその存在や対処法に関する情報を適切に提供（開示）しなければならない", "隠蔽しなければならない", "放置してよい", "労働者の自己責任とする"], answer: 0, explanation: "残留リスクについては使用者および作業者に情報提供する必要があります。" },
+            { id: 55, section: "リスクアセスメント", question: "機械安全に関する国際規格の基本安全規格（A規格）の代表例はどれか。", options: ["JIS B 9700 (ISO 12100)", "JIS B 9900", "ISO 9001", "ISO 14001"], answer: 0, explanation: "ISO 12100（JIS B 9700）は機械安全のA規格（基本安全規格）です。" },
+            { id: 56, section: "リスクアセスメント", question: "B規格（グループ安全規格）に分類されるものの特徴はどれか。", options: ["特定の1種類の機械専用の規格", "安全囲いや二手操作ボタンなど、多くの機械に共通して適用される安全 аспектоの規格", "品質管理全般の規格", "経理処理の規格"], answer: 1, explanation: "B規格はセーフティデバイスなど広範な機械に適用できるグループ安全規格です。" },
+            { id: 57, section: "リスクアセスメント", question: "C規格（個別機械規格）の特徴はどれか。", options: ["すべての機械に共通する", "特定の種類の機械（例：プレス機械や工作機械など）の詳細な安全要求事項を定める", "ソフトウェアの規格のみ", "建築物の規格"], answer: 1, explanation: "C規格は個別の特定機械カテゴリに対する詳細な安全規格です。" },
+            { id: 58, section: "リスクアセスメント", question: "リスクアセスメントの結果や実施記録の保存・共有の必要性について正しいものはどれか。", options: ["記録はすぐに破棄する", "改善の経緯や効果を確認するため記録し、関係者で共有・活用する", "誰にも見せてはならない", "法律で一切禁止されている"], answer: 0, explanation: "アセスメントの履歴や対策の経緯を記録・維持することが重要です。" },
+            { id: 59, section: "リスクアセスメント", question: "機械のライフサイクル全体（設計、輸送、設置、使用、保守、廃棄）を通じたリスクアセスメントの考え方について正しいものはどれか。", options: ["稼働中だけ考えればよい", "すべてのフェーズ（ライフサイクル全般）で潜在リスクを評価・低減する必要がある", "廃棄時は考えなくてよい", "設計時だけで十分である"], answer: 1, explanation: "機械の全ライフサイクルにわたってリスクアセスメントを実施します。" },
+            { id: 60, section: "リスクアセスメント", question: "リスクアセスメントの見直しを行うべきタイミングとして適切なものはどれか。", options: ["一度行ったら二度と見直さない", "工程や機械の変更、労働災害の発生、新しい情報の入手時など", "10年に1度のみ", "担当者が代わったときだけ"], answer: 1, explanation: "変更や事故発生、知見の更新等があった場合は随時見直します。" },
+            { id: 61, section: "リスクアセスメント", question: "「危害（Harm）」の正確な意味はどれか。", options: ["機械の故障", "人の負傷又は健康障害", "経済的損失", "生産の遅れ"], answer: 1, explanation: "ISO 12100等において、危害とは人に対する身体の負傷または健康障害を指します。" },
+            { id: 62, section: "リスクアセスメント", question: "「危険源（Hazard）」の正確な意味はどれか。", options: ["危害を引き起こす潜在的な源", "実際に起きた事故", "安全な部品", "修理費用"], answer: 0, explanation: "危険源は危害を引き起こす潜在的な要因や源です。" },
+            { id: 63, section: "リスクアセスメント", question: "危険状況（Hazardous situation）とはどのような状態か。", options: ["安全な作業状態", "人が1つ以上の危険源にさらされている状況", "機械が停止して清掃している状態", "事務所で休憩している状態"], answer: 1, explanation: "危険源に人がさらされている状態を指します。" },
+            { id: 64, section: "リスクアセスメント", question: "リスク低減の原則において、まず最初に検討すべきことはどれか。", options: ["保護具の着用", "本質安全設計（危険源の除去またはリスクの縮小）", "警告ラベルの貼付", "作業者の注意喚起"], answer: 1, explanation: "最も優先すべきは機械自体の本質安全設計です。" },
+            { id: 65, section: "リスクアセスメント", question: "防護（Safeguard）の手段として正しくないものはどれか。", options: ["ガード（固定式、可動式など）", "保護装置（ライトカーテン、インターロック等）", "作業者の気合と根性", "補助具（押し棒など）"], answer: 2, explanation: "防護にはガードや保護装置、補助具などが用いられます。" },
+            { id: 66, section: "リスクアセスメント", question: "本質安全設計方策の具体例はどれか。", options: ["安全囲いの設置", "機械の可動部における挟まれ隙間の拡大・排除、エッジの面取り", "警告表示の追加", "作業服の指定"], answer: 1, explanation: "形状や構造自体の工夫による危険の排除が本質安全設計です。" },
+            { id: 67, section: "リスクアセスメント", question: "付加保護方策の具体例はどれか。", options: ["インターロック付きガードや非常停止装置の設置", "部品そのものをなくすこと", "材料の強度を下げること", "危険速度を下げること"], answer: 0, explanation: "ガードや保護装置は付加保護方策に分類されます。" },
+            { id: 68, section: "リスクアセスメント", question: "使用上の情報に含まれないものはどれか。", options: ["取扱説明書における残留リスクの警告", "操作パネルの分かりやすい表示", "機械の本体そのものの安全設計（本質安全）", "保守マニュアルでの注意事項"], answer: 2, explanation: "本体の安全設計は本質安全設計方策であり、使用上の情報ではありません。" },
+            { id: 69, section: "リスクアセスメント", question: "リスクの見積もりにおいて「頻度及び暴露の時間」を評価する理由はどれか。", options: ["危険源にさらされる度合いによってリスクの大きさが変わるため", "単にアンケートの項目を増やすため", "コスト計算のため", "関係ない"], answer: 0, explanation: "どれだけの頻度でどれくらい長時間危険にさらされるかはリスク評価の重要な要素です。" },
+            { id: 70, section: "リスクアセスメント", question: "リスクの見積もりにおいて「危害の回避又は制限の可能性」を考慮する理由はどれか。", options: ["危険が迫ったときに逃げられるか、被害を軽減できるかでリスク実態が変わるため", "作業をサボる口実にするため", "機械の電気容量を計算するため", "特になし"], answer: 0, explanation: "回避可能性が高いほどリスクは低く見積もられます。" },
+            { id: 71, section: "リスクアセスメント", question: "定性的なリスク評価の手法として一般的なものはどれか。", options: ["リスクマトリクス法", "微分積分法", "素数分解法", "単体テスト"], answer: 0, explanation: "リスクマトリクスを用いた評価は代表的な定性手法です。" },
+            { id: 72, section: "リスクアセスメント", question: "リスクアセスメントの実施体制として適切なものはどれか。", options: ["現場の声を聞かずに経営者だけで行う", "設計、保全、生産管理、現場作業員など多様な立場のメンバーでチームを組む", "外部の人だけで行う", "新入社員だけで行う"], answer: 1, explanation: "多角的な視点を得るため、複数部門のチームで実施するのが効果的です。" },
+            { id: 73, section: "リスクアセスメント", question: "機械の設計段階で行うリスクアセスメントの大きなメリットはどれか。", options: ["対策コストが低く抑えられ、安全性の高い設計が容易にできる", "設計が永遠に終わらない", "コストが非常に高くなる", "効果がない"], answer: 0, explanation: "上流（設計）段階での対策が最も効率的で効果的です。" },
+            { id: 74, section: "リスクアセスメント", question: "使用段階で行うリスクアセスメントの目的はどれか。", options: ["すでに稼働中の現場における隠れた危険を見つけ出し、災害を防ぐこと", "機械を壊すこと", "生産をストップさせること", "何もしないこと"], answer: 0, explanation: "稼働中の実態に即した危険を洗い出し対策します。" },
+            { id: 75, section: "リスクアセスメント", question: "危険源の特定（洗い出し）における情報源として不適切なものはどれか。", options: ["過去の災害・ヒヤリハット事例", "取扱説明書や安全規格", "製造業とは無関係の小説やフィクション", "現場の作業分析や観察"], answer: 2, explanation: "安全に関わる事実や規格、過去のデータに基づき特定します。" },
+            { id: 76, section: "リスクアセスメント", question: "ISO 12100における機械安全の基本的なアプローチ（3ステップ）の順番として正しいものはどれか。", options: ["保護具の着用 ➔ ガード設置 ➔ 本質安全", "本質安全設計方策 ➔ 安全防護及び付加保護方策 ➔ 使用上の情報", "使用上の情報 ➔ 本質安全 ➔ ガード", "どれでもよい"], answer: 1, explanation: "第1ステップ（本質安全）→第2ステップ（防護）→第3ステップ（情報）の順です。" },
+            { id: 77, section: "リスクアセスメント", question: "本質安全設計において「作業姿勢や人間工学の原則の考慮」が役立つ理由はどれか。", options: ["ヒューマンエラーや疲労を軽減し、無理な姿勢による事故を防ぐため", "作業スピードを落とすため", "コストを上げるため", "意味はない"], answer: 0, explanation: "人間工学的配慮により無理や誤操作を防止できます。" },
+            { id: 78, section: "リスクアセスメント", question: "エネルギー源の隔離・遮断（エネルギーアイソレーション）の重要性について正しいものはどれか。", options: ["保守点検時に予期せぬ起動やエネルギー放出を防ぐために不可欠である", "全く意味がない", "生産性が上がるので常時行う", "電気代が増える"], answer: 0, explanation: "エネルギーの予期せぬ放出を防ぐための基本です。" },
+            { id: 79, section: "リスクアセスメント", question: "安全管理における「ヒューマンエラー」の捉え方として適切なものはどれか。", options: ["すべて労働者の個人の責任として処罰する", "人間はミスをするものという前提に立ち、エラーを誘発しない環境や仕組みを設計する", "エラーは絶対に起きないと仮定する", "無視してよい"], answer: 1, explanation: "エラーを前提に、ミスの起きにくいシステム（フールプルーフ等）を設計します。" },
+            { id: 80, section: "リスクアセスメント", question: "リスクアセスメントの記録（アセスメントシート等）の主な活用法はどれか。", options: ["ただファイリングして眠らせる", "関係者への教育訓練、安全対策の進捗管理、次回の見直しに活用する", "外部に秘密裏に隠す", "すぐにゴミ箱に捨てる"], answer: 1, explanation: "教育や今後の安全改善の貴重な資産として活用します。" },
+            { id: 81, section: "リスクアセスメント", question: "可動部への巻き込まれを防ぐための安全距離に関する規格の考え方はどれか。", options: ["手を伸ばしても危険源に届かない十分な距離や開口部寸法を確保する", "どれだけ近くても気合で避ける", "指が挟まるまで近づけてもよい", "関係ない"], answer: 0, explanation: "安全距離や安全隙間に関する国際規格に基づき設計します。" },
+            { id: 82, section: "リスクアセスメント", question: "機械の起動に関する安全要件として正しいものはどれか。", options: ["意図しない再起動ができないようなインターロックや制御構造にする", "電源を入れたら自動で急発進するようにする", "誰でも簡単に遠隔から不意に起動できるようにする", "スイッチを壊れやすくする"], answer: 0, explanation: "予期しない再起動は重大な事故を招くため防止策が必須です。" },
+            { id: 83, section: "リスクアセスメント", question: "安全色のうち「指示」や「特定の方向・状態」を示す色として一般的なものはどれか。", options: ["赤色", "青色", "黄色", "黒色"], answer: 1, explanation: "青色は特定の指示や義務（保護具着用など）に用いられます。" },
+            { id: 84, section: "リスクアセスメント", question: "安全に関する警告表示（コーション・ワーニング等）の限界はどれか。", options: ["文字が読めない者や見落とし、慣れによる無視などが発生し得るため、第一の対策としては不十分", "絶対に効果がある", "機械のパワーを上げる", "特にない"], answer: 0, explanation: "警告（使用上の情報）は第3ステップであり、構造的な対策（第1・第2）の代わりにはなりません。" },
+            { id: 85, section: "リスクアセスメント", question: "安全文化において「報告の文化（Reporting culture）」とは何か。", options: ["ミスやヒヤリハットを隠さず報告できる環境と、それを罰しない風土", "誰がミスしたか告発して罰する風土", "報告を一切禁止する風土", "書類を100枚書かせる風土"], answer: 0, explanation: "失敗やヒヤリハットをオープンに報告・共有できることが安全な組織の基本です。" },
+            { id: 86, section: "リスクアセスメント", question: "リスクアセスメントの教育は誰を対象に行うべきか。", options: ["社長だけ", "管理者だけでなく、現場で実際に作業を行う労働者も含めた関係者全員", "外部の業者のみ", "新入社員の代表1人のみ"], answer: 1, explanation: "リスクアセスメントに関わるすべての人が教育を受ける必要があります。" },
+            { id: 87, section: "リスクアセスメント", question: "機械安全における「リスク低減」の最終的なゴールはどれか。", options: ["コストを限界まで削ること", "社会通念上許容できるレベル（許容リスク）までリスクを下げ、安全性を確保すること", "事故が起きても責任を逃れること", "機械を動かさないこと"], answer: 0, explanation: "許容可能なリスクレベルまで低減することがゴールです。" },
+            { id: 88, section: "リスクアセスメント", question: "作業標準書やマニュアルの不備が引き起こすリスクの性質はどれか。", options: ["人的要因を通じた誤操作や不安全行動の誘発", "機械の電気的ショート", "部品の自然摩耗", "関係ない"], answer: 0, explanation: "明確でないマニュアルはヒューマンエラーの原因となります。" },
+            { id: 89, section: "リスクアセスメント", question: "安全衛生マネジメントシステム（OSHMS）導入の最大の効果はどれか。", options: ["組織的かつ継続的に安全衛生水準を向上させ、災害を防止できること", "税金が免除されること", "会社の規模が2倍になること", "書類仕事が増えて忙しくなること"], answer: 0, explanation: "体系的かつ継続的な安全改善の仕組みが構築できます。" },
+            { id: 90, section: "リスクアセスメント", question: "安全活動における「指差喚呼（指さし確認）」の効果はどれか。", options: ["意識を集中させ、確認ミスやヒューマンエラーを防止する", "声が大きくなってうるさくなる", "作業スピードが3倍になる", "意味はない"], answer: 0, explanation: "視覚・聴覚・筋肉を連動させることで注意力を高めミスを防ぎます。" }
+
+            // __CONTINUE_SECTION_3__
         ];
 
-        let currentIdx = 0;
-        let score = 0;
-        let wrongIds = [];
+        // ============================================================
+        // 管理者判定・画面切替（adminbutton.js 相当）
+        // ============================================================
+        const ADMIN_EMAIL = 'iceplantengineering@gmail.com';
 
-        window.addEventListener('DOMContentLoaded', () => {
-            setTimeout(() => {
-                if (window.supabase) {
-                    window.supabase.auth.onAuthStateChange((event, session) => {
-                        if (session) {
-                            document.getElementById('auth-container').classList.add('hidden');
-                            document.getElementById('app-container').classList.remove('hidden');
-                            document.getElementById('user-info').innerText = `${session.user.email}`;
-                            loadHistory();
-                        } else {
-                            document.getElementById('auth-container').classList.remove('hidden');
-                            document.getElementById('app-container').classList.add('hidden');
-                            document.getElementById('quiz-container').classList.add('hidden');
-                            document.getElementById('result-container').classList.add('hidden');
-                            document.getElementById('user-info').innerText = '';
-                        }
-                    });
+        function isAdmin(user) {
+            return user && user.email === ADMIN_EMAIL;
+        }
+
+        function showStartScreenForUser(user) {
+            document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('exam-screen').classList.add('hidden');
+            document.getElementById('result-screen').classList.add('hidden');
+            document.getElementById('admin-screen').classList.add('hidden');
+            document.getElementById('start-screen').classList.remove('hidden');
+
+            const adminBtn = document.getElementById('admin-open-btn');
+            if (adminBtn) {
+                if (isAdmin(user)) {
+                    adminBtn.classList.remove('hidden');
+                } else {
+                    adminBtn.classList.add('hidden');
                 }
-            }, 500);
-        });
+            }
+        }
+
+        // ============================================================
+        // 試験開始（startExam.js 相当）
+        // ============================================================
+        function startExam() {
+            const sectionSelect = document.getElementById('section-select');
+            const selectedValue = sectionSelect ? sectionSelect.value : 'all';
+
+            if (selectedValue === 'all') {
+                currentQuestions = [...questions];
+                currentSectionName = "全セクション（ランダム）";
+            } else {
+                currentQuestions = questions.filter(q => q.section === selectedValue);
+                currentSectionName = selectedValue;
+            }
+
+            currentQuestions.sort(() => Math.random() - 0.5);
+
+            currentQuestionIndex = 0;
+            score = 0;
+
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('result-screen').classList.add('hidden');
+            document.getElementById('admin-screen').classList.add('hidden');
+            document.getElementById('exam-screen').classList.remove('hidden');
+
+            showQuestion();
+        }
+
+        // ============================================================
+        // 問題表示・解答チェック（showQuestion.js 相当）
+        // ============================================================
+        function showQuestion() {
+            if (currentQuestionIndex >= currentQuestions.length) {
+                showResult();
+                return;
+            }
+
+            const q = currentQuestions[currentQuestionIndex];
+            document.getElementById('question-progress').innerText =
+                `問題 ${currentQuestionIndex + 1} / ${currentQuestions.length}`;
+            document.getElementById('question-category').innerText = q.section;
+            document.getElementById('question-text').innerText = q.question;
+            document.getElementById('explanation-box').classList.add('hidden');
+
+            const optionsDiv = document.getElementById('options');
+            optionsDiv.innerHTML = '';
+
+            q.options.forEach((opt, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'w-full text-left p-3 border rounded-xl hover:bg-slate-100 transition font-medium';
+                btn.innerText = `${index + 1}. ${opt}`;
+                btn.onclick = () => checkAnswer(index, q.answer);
+                optionsDiv.appendChild(btn);
+            });
+        }
+
+        function checkAnswer(selectedIndex, correctIndex) {
+            const q = currentQuestions[currentQuestionIndex];
+            const buttons = document.getElementById('options').children;
+
+            for (let i = 0; i < buttons.length; i++) {
+                buttons[i].disabled = true;
+                if (i === correctIndex) {
+                    buttons[i].classList.add('bg-green-100', 'border-green-500');
+                } else if (i === selectedIndex) {
+                    buttons[i].classList.add('bg-red-100', 'border-red-500');
+                }
+            }
+
+            if (selectedIndex === correctIndex) {
+                score++;
+            }
+
+            document.getElementById('explanation-text').innerText = q.explanation || '';
+            document.getElementById('explanation-box').classList.remove('hidden');
+        }
+
+        function nextQuestion() {
+            currentQuestionIndex++;
+            showQuestion();
+        }
+
+        // ============================================================
+        // 結果表示（showResult.js 相当）
+        // ============================================================
+        async function showResult() {
+            document.getElementById('exam-screen').classList.add('hidden');
+            document.getElementById('result-screen').classList.remove('hidden');
+
+            const total = currentQuestions.length;
+            const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
+            document.getElementById('score-text').innerText =
+                `${currentSectionName}のテスト終了！\n正答率: ${percentage}%（${score} / ${total}）`;
+
+            if (currentUser) {
+                const { error } = await window.supabase.from('scores').insert([
+                    {
+                        user_id: currentUser.id,
+                        score: score,
+                        total: total,
+                        section: currentSectionName
+                    }
+                ]);
+                if (error) {
+                    console.error('成績保存エラー:', error);
+                    document.getElementById('result-save-msg').innerText =
+                        '成績の保存に失敗しました。テーブル設定を確認してください。';
+                } else {
+                    document.getElementById('result-save-msg').innerText = '成績がSupabaseに保存されました。';
+                    loadHistory();
+                }
+            }
+        }
+
+        function returnToDashboard() {
+            document.getElementById('result-screen').classList.add('hidden');
+            document.getElementById('exam-screen').classList.add('hidden');
+            document.getElementById('admin-screen').classList.add('hidden');
+            document.getElementById('start-screen').classList.remove('hidden');
+        }
+
+        // ============================================================
+        // 管理者ダッシュボード描画（dashboarddraw.js 相当）
+        // ============================================================
+        async function showAdminDashboard() {
+            document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('exam-screen').classList.add('hidden');
+            document.getElementById('result-screen').classList.add('hidden');
+            document.getElementById('admin-screen').classList.remove('hidden');
+
+            const { data: scoresData, error } = await window.supabase
+                .from('scores')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error('データ取得エラー:', error);
+                alert('データ取得に失敗しました');
+                return;
+            }
+
+            const totalTests = scoresData.length;
+            let totalCorrect = 0;
+            let totalQuestions = 0;
+            const uniqueUsers = new Set();
+
+            const tableBody = document.getElementById('admin-scores-table');
+            tableBody.innerHTML = '';
+
+            scoresData.forEach(row => {
+                uniqueUsers.add(row.user_id);
+                totalCorrect += row.score;
+                totalQuestions += (row.total || 5);
+
+                const tr = document.createElement('tr');
+                tr.className = 'border-b hover:bg-gray-50';
+                tr.innerHTML = `
+                    <td class="p-3 text-sm text-gray-700">${row.user_id.substring(0, 8)}...</td>
+                    <td class="p-3 text-sm text-gray-600">${row.section || '全セクション'}</td>
+                    <td class="p-3 text-sm font-bold text-indigo-600">${row.score} / ${row.total || '-'}</td>
+                    <td class="p-3 text-xs text-gray-500">${new Date(row.created_at).toLocaleString()}</td>
+                `;
+                tableBody.appendChild(tr);
+            });
+
+            document.getElementById('total-tests').innerText = totalTests;
+            document.getElementById('total-users').innerText = uniqueUsers.size;
+
+            const avg = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
+            document.getElementById('avg-score').innerText = `${avg}%`;
+        }
+
+        function backToMain() {
+            document.getElementById('admin-screen').classList.add('hidden');
+            document.getElementById('start-screen').classList.remove('hidden');
+        }
+
+        // ============================================================
+        // 認証・初期化処理
+        // ============================================================
+        function populateSectionSelect() {
+            const select = document.getElementById('section-select');
+            if (!select) return;
+            const sections = [...new Set(questions.map(q => q.section))];
+            sections.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s;
+                opt.textContent = s;
+                select.appendChild(opt);
+            });
+        }
 
         async function handleSignup() {
             const email = document.getElementById('email').value;
@@ -173,93 +492,9 @@
             await window.supabase.auth.signOut();
         }
 
-        function startQuiz() {
-            currentIdx = 0;
-            score = 0;
-            wrongIds = [];
-            document.getElementById('app-container').classList.add('hidden');
-            document.getElementById('quiz-container').classList.remove('hidden');
-            showQuestion();
-        }
-
-        function showQuestion() {
-            const q = questions[currentIdx];
-            document.getElementById('question-progress').innerText = `問題 ${currentIdx + 1} / ${questions.length}`;
-            document.getElementById('question-category').innerText = q.category;
-            document.getElementById('question-text').innerText = q.text;
-            document.getElementById('explanation-box').classList.add('hidden');
-
-            const container = document.getElementById('options-container');
-            container.innerHTML = '';
-            q.options.forEach((opt, idx) => {
-                const btn = document.createElement('button');
-                btn.className = 'w-full text-left p-3 border rounded-xl hover:bg-slate-100 transition font-medium';
-                btn.innerText = `${idx + 1}. ${opt}`;
-                btn.onclick = () => selectAnswer(idx);
-                container.appendChild(btn);
-            });
-        }
-
-        function selectAnswer(selected) {
-            const q = questions[currentIdx];
-            const buttons = document.getElementById('options-container').children;
-            
-            for(let i=0; i<buttons.length; i++) {
-                buttons[i].disabled = true;
-                if(i === q.answer) {
-                    buttons[i].classList.add('bg-green-100', 'border-green-500');
-                } else if(i === selected) {
-                    buttons[i].classList.add('bg-red-100', 'border-red-500');
-                }
-            }
-
-            if(selected === q.answer) {
-                score++;
-            } else {
-                wrongIds.push(currentIdx);
-            }
-
-            document.getElementById('explanation-text').innerText = q.explanation;
-            document.getElementById('explanation-box').classList.remove('hidden');
-        }
-
-        function nextQuestion() {
-            currentIdx++;
-            if(currentIdx < questions.length) {
-                showQuestion();
-            } else {
-                finishQuiz();
-            }
-        }
-
-        async function finishQuiz() {
-            document.getElementById('quiz-container').classList.add('hidden');
-            document.getElementById('result-container').classList.remove('hidden');
-            const percentage = Math.round((score / questions.length) * 100);
-            document.getElementById('result-score').innerText = `正答率: ${percentage}% (${score} / ${questions.length})`;
-
-            const { data: { user } } = await window.supabase.auth.getUser();
-            if(user) {
-                await window.supabase.from('exam_history').insert([{
-                    user_id: user.id,
-                    category: '機械安全総合模試',
-                    score: percentage,
-                    total_questions: questions.length,
-                    correct_count: score,
-                    wrong_question_ids: wrongIds
-                }]);
-                loadHistory();
-            }
-        }
-
-        function returnToDashboard() {
-            document.getElementById('result-container').classList.add('hidden');
-            document.getElementById('app-container').classList.remove('hidden');
-        }
-
         async function loadHistory() {
             const { data, error } = await window.supabase
-                .from('exam_history')
+                .from('scores')
                 .select('*')
                 .order('created_at', { ascending: false })
                 .limit(5);
@@ -272,11 +507,37 @@
 
             listEl.innerHTML = data.map(h => `
                 <div class="flex justify-between p-2 bg-slate-50 rounded border">
-                    <span>${new Date(h.created_at).toLocaleString()}</span>
-                    <span class="font-bold text-indigo-600">${h.score}% (${h.correct_count}/${h.total_questions})</span>
+                    <span>${h.section || '全セクション'}</span>
+                    <span class="font-bold text-indigo-600">${h.score} / ${h.total || '-'} (${new Date(h.created_at).toLocaleDateString()})</span>
                 </div>
             `).join('');
         }
+
+        // 初期化
+        populateSectionSelect();
+
+        window.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                if (window.supabase) {
+                    window.supabase.auth.onAuthStateChange((event, session) => {
+                        if (session) {
+                            currentUser = session.user;
+                            document.getElementById('user-info').innerText = `${session.user.email}`;
+                            showStartScreenForUser(session.user);
+                            loadHistory();
+                        } else {
+                            currentUser = null;
+                            document.getElementById('auth-screen').classList.remove('hidden');
+                            document.getElementById('start-screen').classList.add('hidden');
+                            document.getElementById('exam-screen').classList.add('hidden');
+                            document.getElementById('result-screen').classList.add('hidden');
+                            document.getElementById('admin-screen').classList.add('hidden');
+                            document.getElementById('user-info').innerText = '';
+                        }
+                    });
+                }
+            }, 500);
+        });
     </script>
 </body>
 </html>
