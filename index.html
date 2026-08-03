@@ -476,16 +476,38 @@
         async function handleSignup() {
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
-            const { error } = await window.supabase.auth.signUp({ email, password });
-            if (error) document.getElementById('auth-msg').innerText = error.message;
-            else alert('確認メールを送信しました。メール内のリンクを確認してください。');
+            const msgEl = document.getElementById('auth-msg');
+            msgEl.innerText = '';
+            msgEl.className = 'text-sm text-center text-red-500 mt-2';
+            const { data, error } = await window.supabase.auth.signUp({ email, password });
+            if (error) {
+                msgEl.innerText = error.message;
+            } else if (data && data.session) {
+                msgEl.className = 'text-sm text-center text-green-600 mt-2';
+                msgEl.innerText = 'アカウントを作成し、ログインしました。';
+            } else {
+                msgEl.className = 'text-sm text-center text-green-600 mt-2';
+                msgEl.innerText = '確認メールを送信しました。メール内のリンクをクリックして認証を完了してください。';
+            }
         }
 
         async function handleLogin() {
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
+            const msgEl = document.getElementById('auth-msg');
+            msgEl.innerText = '';
+            msgEl.className = 'text-sm text-center text-red-500 mt-2';
             const { error } = await window.supabase.auth.signInWithPassword({ email, password });
-            if (error) document.getElementById('auth-msg').innerText = error.message;
+            if (error) {
+                const m = (error.message || '').toLowerCase();
+                if (m.includes('not confirmed')) {
+                    msgEl.innerText = 'メール確認が未完了です。確認メールのリンクをクリックするか、Supabase設定で「Confirm email」を無効化してください。';
+                } else if (m.includes('invalid login')) {
+                    msgEl.innerText = 'メールアドレスまたはパスワードが正しくありません。未登録の場合は「新規登録」してください。';
+                } else {
+                    msgEl.innerText = error.message;
+                }
+            }
         }
 
         async function handleLogout() {
@@ -493,50 +515,68 @@
         }
 
         async function loadHistory() {
-            const { data, error } = await window.supabase
-                .from('scores')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(5);
-
             const listEl = document.getElementById('history-list');
-            if (error || !data || data.length === 0) {
-                listEl.innerHTML = '<p class="text-slate-400">まだ受験履歴がありません。</p>';
-                return;
-            }
+            try {
+                const { data, error } = await window.supabase
+                    .from('scores')
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(5);
 
-            listEl.innerHTML = data.map(h => `
-                <div class="flex justify-between p-2 bg-slate-50 rounded border">
-                    <span>${h.section || '全セクション'}</span>
-                    <span class="font-bold text-indigo-600">${h.score} / ${h.total || '-'} (${new Date(h.created_at).toLocaleDateString()})</span>
-                </div>
-            `).join('');
+                if (error) {
+                    console.warn('履歴取得エラー:', error.message);
+                    listEl.innerHTML = '<p class="text-slate-400">まだ受験履歴がありません。</p>';
+                    return;
+                }
+                if (!data || data.length === 0) {
+                    listEl.innerHTML = '<p class="text-slate-400">まだ受験履歴がありません。</p>';
+                    return;
+                }
+
+                listEl.innerHTML = data.map(h => `
+                    <div class="flex justify-between p-2 bg-slate-50 rounded border">
+                        <span>${h.section || '全セクション'}</span>
+                        <span class="font-bold text-indigo-600">${h.score} / ${h.total || '-'} (${new Date(h.created_at).toLocaleDateString()})</span>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.warn('履歴取得例外:', e);
+                listEl.innerHTML = '<p class="text-slate-400">まだ受験履歴がありません。</p>';
+            }
         }
 
         // 初期化
         populateSectionSelect();
 
+        function waitForSupabase(callback, attempts = 0) {
+            if (window.supabase) {
+                callback();
+            } else if (attempts < 100) {
+                setTimeout(() => waitForSupabase(callback, attempts + 1), 100);
+            } else {
+                console.error('Supabaseクライアントの初期化に失敗しました。ネットワークを確認してください。');
+            }
+        }
+
         window.addEventListener('DOMContentLoaded', () => {
-            setTimeout(() => {
-                if (window.supabase) {
-                    window.supabase.auth.onAuthStateChange((event, session) => {
-                        if (session) {
-                            currentUser = session.user;
-                            document.getElementById('user-info').innerText = `${session.user.email}`;
-                            showStartScreenForUser(session.user);
-                            loadHistory();
-                        } else {
-                            currentUser = null;
-                            document.getElementById('auth-screen').classList.remove('hidden');
-                            document.getElementById('start-screen').classList.add('hidden');
-                            document.getElementById('exam-screen').classList.add('hidden');
-                            document.getElementById('result-screen').classList.add('hidden');
-                            document.getElementById('admin-screen').classList.add('hidden');
-                            document.getElementById('user-info').innerText = '';
-                        }
-                    });
-                }
-            }, 500);
+            waitForSupabase(() => {
+                window.supabase.auth.onAuthStateChange((event, session) => {
+                    if (session) {
+                        currentUser = session.user;
+                        document.getElementById('user-info').innerText = `${session.user.email}`;
+                        showStartScreenForUser(session.user);
+                        loadHistory();
+                    } else {
+                        currentUser = null;
+                        document.getElementById('auth-screen').classList.remove('hidden');
+                        document.getElementById('start-screen').classList.add('hidden');
+                        document.getElementById('exam-screen').classList.add('hidden');
+                        document.getElementById('result-screen').classList.add('hidden');
+                        document.getElementById('admin-screen').classList.add('hidden');
+                        document.getElementById('user-info').innerText = '';
+                    }
+                });
+            });
         });
     </script>
 </body>
