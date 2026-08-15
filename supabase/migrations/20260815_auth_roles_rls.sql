@@ -61,6 +61,13 @@ $$;
 --    DELETE: 自分の行のみ + 管理者は全件
 -- ------------------------------------------------------------
 drop policy if exists "scores_select" on public.scores;
+drop policy if exists "scores_insert" on public.scores;
+drop policy if exists "scores_update" on public.scores;
+drop policy if exists "scores_delete" on public.scores;
+-- 旧ポリシー（既存）の削除
+drop policy if exists "Anyone can view scores" on public.scores;
+drop policy if exists "Users can insert own scores" on public.scores;
+
 create policy "scores_select" on public.scores
   for select
   using (auth.uid() = user_id or public.is_admin());
