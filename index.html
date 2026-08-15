@@ -38,6 +38,10 @@
                 <input type="email" id="email" class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="example@email.com">
             </div>
             <div>
+                <label class="block text-sm font-medium text-slate-600">表示名（任意・新規登録時）</label>
+                <input type="text" id="display-name" class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="例: 山本 太郎">
+            </div>
+            <div>
                 <label class="block text-sm font-medium text-slate-600">パスワード</label>
                 <input type="password" id="password" class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="••••••••">
             </div>
@@ -149,7 +153,8 @@
                 <table class="w-full">
                     <thead>
                         <tr class="border-b text-left text-xs text-slate-500">
-                            <th class="p-3">ユーザー</th>
+                            <th class="p-3">ユーザー名</th>
+                            <th class="p-3">メールアドレス</th>
                             <th class="p-3">セクション</th>
                             <th class="p-3">スコア</th>
                             <th class="p-3">受験日時</th>
@@ -313,6 +318,20 @@
             return currentUserRole === 'admin';
         }
 
+        async function loadProfile(user) {
+            if (!user) return null;
+            try {
+                const { data } = await window.supabase
+                    .from('profiles')
+                    .select('display_name, email')
+                    .eq('user_id', user.id)
+                    .maybeSingle();
+                return data || null;
+            } catch (e) {
+                return null;
+            }
+        }
+
         async function showStartScreenForUser(user) {
             document.getElementById('auth-screen').classList.add('hidden');
             document.getElementById('reset-screen').classList.add('hidden');
@@ -469,16 +488,28 @@
             document.getElementById('result-screen').classList.add('hidden');
             document.getElementById('admin-screen').classList.remove('hidden');
 
-            const { data: scoresData, error } = await window.supabase
-                .from('scores')
-                .select('*')
-                .order('created_at', { ascending: false });
+            const [scoresRes, profilesRes] = await Promise.all([
+                window.supabase.from('scores').select('*').order('created_at', { ascending: false }),
+                window.supabase.from('profiles').select('user_id, email, display_name')
+            ]);
 
-            if (error) {
-                console.error('データ取得エラー:', error);
+            if (scoresRes.error) {
+                console.error('データ取得エラー:', scoresRes.error);
                 alert('データ取得に失敗しました');
                 return;
             }
+
+            const scoresData = scoresRes.data || [];
+            const profilesData = profilesRes.data || [];
+
+            // user_id → 表示情報 のマップを作成
+            const userMap = {};
+            profilesData.forEach(p => {
+                userMap[p.user_id] = {
+                    email: p.email || '',
+                    displayName: p.display_name || (p.email || '').split('@')[0] || '不明'
+                };
+            });
 
             const totalTests = scoresData.length;
             let totalCorrect = 0;
@@ -493,10 +524,13 @@
                 totalCorrect += row.score;
                 totalQuestions += (row.total || 5);
 
+                const u = userMap[row.user_id] || { displayName: (row.user_id || '').substring(0, 8), email: row.user_id || '' };
+
                 const tr = document.createElement('tr');
                 tr.className = 'border-b hover:bg-gray-50';
                 tr.innerHTML = `
-                    <td class="p-3 text-sm text-gray-700">${row.user_id.substring(0, 8)}...</td>
+                    <td class="p-3 text-sm font-medium text-gray-800">${u.displayName}</td>
+                    <td class="p-3 text-sm text-gray-600">${u.email}</td>
                     <td class="p-3 text-sm text-gray-600">${row.section || '全セクション'}</td>
                     <td class="p-3 text-sm font-bold text-indigo-600">${row.score} / ${row.total || '-'}</td>
                     <td class="p-3 text-xs text-gray-500">${new Date(row.created_at).toLocaleString()}</td>
@@ -505,7 +539,7 @@
             });
 
             document.getElementById('total-tests').innerText = totalTests;
-            document.getElementById('total-users').innerText = uniqueUsers.size;
+            document.getElementById('total-users').innerText = profilesData.length;
 
             const avg = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
             document.getElementById('avg-score').innerText = `${avg}%`;
@@ -534,6 +568,7 @@
         async function handleSignup() {
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
+            const displayName = document.getElementById('display-name').value.trim();
             const msgEl = document.getElementById('auth-msg');
             msgEl.innerText = '';
             msgEl.className = 'text-sm text-center text-red-500 mt-2';
@@ -547,7 +582,10 @@
                 return;
             }
 
-            const { data, error } = await window.supabase.auth.signUp({ email, password });
+            const { data, error } = await window.supabase.auth.signUp({
+                email, password,
+                options: { data: { display_name: displayName } }
+            });
             if (error) {
                 const m = (error.message || '').toLowerCase();
                 if (m.includes('already registered') || m.includes('already been registered')) {
@@ -712,7 +750,10 @@
                     if (session) {
                         currentUser = session.user;
                         currentUserRole = null; // セッション更新時はロールを再取得
-                        document.getElementById('user-info').innerText = `${session.user.email}`;
+                        const profile = await loadProfile(session.user);
+                        const displayName = (profile && profile.display_name) || '';
+                        document.getElementById('user-info').innerText =
+                            displayName ? `${displayName}（${session.user.email}）` : `${session.user.email}`;
                         showStartScreenForUser(session.user);
                         loadHistory();
                     } else {
