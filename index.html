@@ -45,7 +45,34 @@
                 <button onclick="handleLogin()" class="flex-1 bg-indigo-600 text-white py-2 rounded-lg font-medium hover:bg-indigo-700 transition">ログイン</button>
                 <button onclick="handleSignup()" class="flex-1 bg-slate-200 text-slate-700 py-2 rounded-lg font-medium hover:bg-slate-300 transition">新規登録</button>
             </div>
+            <p class="text-xs text-slate-400 text-center">パスワードを忘れた場合は、メールアドレスを入力して「パスワード再設定」をクリックしてください。</p>
+            <button onclick="handlePasswordReset()" class="w-full text-xs text-indigo-500 hover:text-indigo-700 underline">パスワード再設定</button>
             <p id="auth-msg" class="text-sm text-center text-red-500 mt-2"></p>
+        </div>
+
+        <!-- パスワード再設定画面（リセットメール送信） -->
+        <div id="reset-screen" class="hidden bg-white p-6 rounded-xl shadow-md space-y-4">
+            <h2 class="text-xl font-bold text-center text-slate-700">パスワード再設定</h2>
+            <p class="text-xs text-slate-500 text-center">登録済みのメールアドレスを入力してください。再設定用のメールを送信します。</p>
+            <div>
+                <label class="block text-sm font-medium text-slate-600">メールアドレス</label>
+                <input type="email" id="reset-email" class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="example@email.com">
+            </div>
+            <button onclick="sendResetEmail()" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-medium hover:bg-indigo-700 transition">再設定メールを送信</button>
+            <button onclick="backToAuthFromReset()" class="w-full text-xs text-slate-400 hover:text-slate-600 underline">ログイン画面に戻る</button>
+            <p id="reset-msg" class="text-sm text-center text-red-500 mt-2"></p>
+        </div>
+
+        <!-- 新パスワード設定画面（リセットメールのリンク経由時） -->
+        <div id="reset-new-pw-screen" class="hidden bg-white p-6 rounded-xl shadow-md space-y-4">
+            <h2 class="text-xl font-bold text-center text-slate-700">新しいパスワードの設定</h2>
+            <p class="text-xs text-slate-500 text-center">新しいパスワードを入力してください（8文字以上）。</p>
+            <div>
+                <label class="block text-sm font-medium text-slate-600">新しいパスワード</label>
+                <input type="password" id="new-password" class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="••••••••">
+            </div>
+            <button onclick="submitNewPassword()" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-medium hover:bg-indigo-700 transition">パスワードを設定する</button>
+            <p id="new-pw-msg" class="text-sm text-center text-red-500 mt-2"></p>
         </div>
 
         <!-- 開始画面（ダッシュボード） -->
@@ -255,16 +282,40 @@
         ];
 
         // ============================================================
-        // 管理者判定・画面切替（adminbutton.js 相当）
+        // 管理者判定・画面切替（user_roles ベース）
         // ============================================================
-        const ADMIN_EMAIL = 'iceplantengineering@gmail.com';
+        let currentUserRole = null; // 'admin' | 'user' | null
 
-        function isAdmin(user) {
-            return user && user.email === ADMIN_EMAIL;
+        async function fetchUserRole(userId) {
+            if (!userId) return null;
+            try {
+                const { data, error } = await window.supabase
+                    .from('user_roles')
+                    .select('role')
+                    .eq('user_id', userId)
+                    .maybeSingle();
+                if (error) {
+                    console.warn('ロール取得エラー:', error.message);
+                    return null;
+                }
+                return data ? data.role : null;
+            } catch (e) {
+                console.warn('ロール取得例外:', e);
+                return null;
+            }
         }
 
-        function showStartScreenForUser(user) {
+        async function isAdmin(user) {
+            if (!user) return false;
+            if (currentUserRole === null) {
+                currentUserRole = await fetchUserRole(user.id);
+            }
+            return currentUserRole === 'admin';
+        }
+
+        async function showStartScreenForUser(user) {
             document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('reset-screen').classList.add('hidden');
             document.getElementById('exam-screen').classList.add('hidden');
             document.getElementById('result-screen').classList.add('hidden');
             document.getElementById('admin-screen').classList.add('hidden');
@@ -272,7 +323,7 @@
 
             const adminBtn = document.getElementById('admin-open-btn');
             if (adminBtn) {
-                if (isAdmin(user)) {
+                if (await isAdmin(user)) {
                     adminBtn.classList.remove('hidden');
                 } else {
                     adminBtn.classList.add('hidden');
@@ -405,7 +456,14 @@
         // 管理者ダッシュボード描画（dashboarddraw.js 相当）
         // ============================================================
         async function showAdminDashboard() {
+            // 管理者以外はアクセス不可（ガード）
+            if (!(await isAdmin(currentUser))) {
+                alert('管理者権限がありません。');
+                return;
+            }
             document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('reset-screen').classList.add('hidden');
+            document.getElementById('reset-new-pw-screen').classList.add('hidden');
             document.getElementById('start-screen').classList.add('hidden');
             document.getElementById('exam-screen').classList.add('hidden');
             document.getElementById('result-screen').classList.add('hidden');
@@ -479,15 +537,32 @@
             const msgEl = document.getElementById('auth-msg');
             msgEl.innerText = '';
             msgEl.className = 'text-sm text-center text-red-500 mt-2';
+
+            if (!email || !password) {
+                msgEl.innerText = 'メールアドレスとパスワードを入力してください。';
+                return;
+            }
+            if (password.length < 8) {
+                msgEl.innerText = 'パスワードは8文字以上で設定してください。';
+                return;
+            }
+
             const { data, error } = await window.supabase.auth.signUp({ email, password });
             if (error) {
-                msgEl.innerText = error.message;
+                const m = (error.message || '').toLowerCase();
+                if (m.includes('already registered') || m.includes('already been registered')) {
+                    msgEl.innerText = 'このメールアドレスは既に登録されています。ログインしてください。';
+                } else if (m.includes('valid email') || m.includes('invalid')) {
+                    msgEl.innerText = 'メールアドレスの形式が正しくありません。';
+                } else {
+                    msgEl.innerText = error.message;
+                }
             } else if (data && data.session) {
                 msgEl.className = 'text-sm text-center text-green-600 mt-2';
                 msgEl.innerText = 'アカウントを作成し、ログインしました。';
             } else {
                 msgEl.className = 'text-sm text-center text-green-600 mt-2';
-                msgEl.innerText = '確認メールを送信しました。メール内のリンクをクリックして認証を完了してください。';
+                msgEl.innerText = '確認メールを送信しました。メール内のリンクをクリックして認証を完了してください。\n（届かない場合は「パスワード再設定」ではなく、もう一度「新規登録」を押すと再送されます）';
             }
         }
 
@@ -501,13 +576,75 @@
             if (error) {
                 const m = (error.message || '').toLowerCase();
                 if (m.includes('not confirmed')) {
-                    msgEl.innerText = 'メール確認が未完了です。確認メールのリンクをクリックするか、Supabase設定で「Confirm email」を無効化してください。';
+                    msgEl.innerText = 'メール確認が未完了です。確認メールのリンクをクリックするか、もう一度「新規登録」を押して確認メールを再送してください。';
                 } else if (m.includes('invalid login')) {
                     msgEl.innerText = 'メールアドレスまたはパスワードが正しくありません。未登録の場合は「新規登録」してください。';
                 } else {
                     msgEl.innerText = error.message;
                 }
             }
+        }
+
+        function handlePasswordReset() {
+            document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('reset-screen').classList.remove('hidden');
+            document.getElementById('reset-msg').innerText = '';
+            document.getElementById('reset-msg').className = 'text-sm text-center text-red-500 mt-2';
+            document.getElementById('reset-email').value = document.getElementById('email').value;
+        }
+
+        function backToAuthFromReset() {
+            document.getElementById('reset-screen').classList.add('hidden');
+            document.getElementById('auth-screen').classList.remove('hidden');
+        }
+
+        async function sendResetEmail() {
+            const email = document.getElementById('reset-email').value;
+            const msgEl = document.getElementById('reset-msg');
+            msgEl.innerText = '';
+            msgEl.className = 'text-sm text-center text-red-500 mt-2';
+            if (!email) {
+                msgEl.innerText = 'メールアドレスを入力してください。';
+                return;
+            }
+            const { error } = await window.supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: window.location.origin + window.location.pathname
+            });
+            if (error) {
+                msgEl.innerText = '再設定メールの送信に失敗しました: ' + error.message;
+            } else {
+                msgEl.className = 'text-sm text-center text-green-600 mt-2';
+                msgEl.innerText = '再設定メールを送信しました。メール内のリンクから新しいパスワードを設定してください。';
+            }
+        }
+
+        async function updatePassword(newPassword) {
+            const { error } = await window.supabase.auth.updateUser({ password: newPassword });
+            return error;
+        }
+
+        async function submitNewPassword() {
+            const newPassword = document.getElementById('new-password').value;
+            const msgEl = document.getElementById('new-pw-msg');
+            msgEl.innerText = '';
+            msgEl.className = 'text-sm text-center text-red-500 mt-2';
+            if (!newPassword || newPassword.length < 8) {
+                msgEl.innerText = 'パスワードは8文字以上で入力してください。';
+                return;
+            }
+            const error = await updatePassword(newPassword);
+            if (error) {
+                msgEl.innerText = 'パスワードの更新に失敗しました: ' + error.message;
+                return;
+            }
+            msgEl.className = 'text-sm text-center text-green-600 mt-2';
+            msgEl.innerText = 'パスワードを更新しました。ログインしてください。';
+            setTimeout(() => {
+                document.getElementById('reset-new-pw-screen').classList.add('hidden');
+                document.getElementById('auth-screen').classList.remove('hidden');
+                document.getElementById('new-password').value = '';
+                window.supabase.auth.signOut();
+            }, 1500);
         }
 
         async function handleLogout() {
@@ -560,15 +697,30 @@
 
         window.addEventListener('DOMContentLoaded', () => {
             waitForSupabase(() => {
-                window.supabase.auth.onAuthStateChange((event, session) => {
+                window.supabase.auth.onAuthStateChange(async (event, session) => {
+                    // パスワードリセットリンク経由時の検出
+                    if (event === 'PASSWORD_RECOVERY') {
+                        document.getElementById('auth-screen').classList.add('hidden');
+                        document.getElementById('reset-screen').classList.add('hidden');
+                        document.getElementById('start-screen').classList.add('hidden');
+                        document.getElementById('exam-screen').classList.add('hidden');
+                        document.getElementById('result-screen').classList.add('hidden');
+                        document.getElementById('admin-screen').classList.add('hidden');
+                        document.getElementById('reset-new-pw-screen').classList.remove('hidden');
+                        return;
+                    }
                     if (session) {
                         currentUser = session.user;
+                        currentUserRole = null; // セッション更新時はロールを再取得
                         document.getElementById('user-info').innerText = `${session.user.email}`;
                         showStartScreenForUser(session.user);
                         loadHistory();
                     } else {
                         currentUser = null;
+                        currentUserRole = null;
                         document.getElementById('auth-screen').classList.remove('hidden');
+                        document.getElementById('reset-screen').classList.add('hidden');
+                        document.getElementById('reset-new-pw-screen').classList.add('hidden');
                         document.getElementById('start-screen').classList.add('hidden');
                         document.getElementById('exam-screen').classList.add('hidden');
                         document.getElementById('result-screen').classList.add('hidden');
