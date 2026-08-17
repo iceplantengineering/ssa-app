@@ -85,6 +85,16 @@
                 <h2 class="text-2xl font-bold text-slate-700">機械安全・リスクアセスメント編</h2>
                 <p class="text-sm text-slate-500">安全法規・リスクアセスメント・機械安全・作業環境・労働衛生の5分野250問の模擬試験です。</p>
 
+                <!-- 途中再開パネル -->
+                <div id="resume-panel" class="hidden bg-amber-50 border border-amber-300 rounded-xl p-4 text-left space-y-3">
+                    <h3 class="font-bold text-amber-800">前回の続きから再開できます</h3>
+                    <p id="resume-info" class="text-sm text-amber-700"></p>
+                    <div class="flex gap-2">
+                        <button onclick="resumeExam()" class="flex-1 bg-amber-500 text-white py-2 rounded-lg font-bold hover:bg-amber-600 transition">続きから再開する</button>
+                        <button onclick="discardProgress()" class="flex-1 bg-white border border-amber-400 text-amber-700 py-2 rounded-lg font-medium hover:bg-amber-100 transition">破棄して新規開始</button>
+                    </div>
+                </div>
+
                 <div class="text-left">
                     <label class="block text-sm font-medium text-slate-600 mb-1">出題セクション</label>
                     <select id="section-select" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
@@ -179,7 +189,9 @@
         let score = 0;
         let currentQuestions = [];
         let currentSectionName = "全セクション";
+        let currentSectionValue = "all";
         let currentUser = null;
+        let savedProgress = null;
 
         // ============================================================
         // 問題データ（questions.js 相当）
@@ -499,6 +511,7 @@
                     adminBtn.classList.add('hidden');
                 }
             }
+            loadResumePanel();
         }
 
         // ============================================================
@@ -507,6 +520,7 @@
         function startExam() {
             const sectionSelect = document.getElementById('section-select');
             const selectedValue = sectionSelect ? sectionSelect.value : 'all';
+            currentSectionValue = selectedValue;
 
             if (selectedValue === 'all') {
                 currentQuestions = [...questions];
@@ -520,6 +534,10 @@
 
             currentQuestionIndex = 0;
             score = 0;
+            savedProgress = null;
+            const resumePanel = document.getElementById('resume-panel');
+            if (resumePanel) resumePanel.classList.add('hidden');
+            saveProgress();
 
             document.getElementById('start-screen').classList.add('hidden');
             document.getElementById('result-screen').classList.add('hidden');
@@ -527,6 +545,79 @@
             document.getElementById('exam-screen').classList.remove('hidden');
 
             showQuestion();
+        }
+
+        // ============================================================
+        // 途中経過の保存・再開（中断しても次回続きから）
+        // ============================================================
+        function saveProgress() {
+            if (!currentUser) return;
+            window.supabase.from('exam_progress').upsert({
+                user_id: currentUser.id,
+                section: currentSectionValue,
+                question_ids: currentQuestions.map(q => q.id),
+                current_index: currentQuestionIndex,
+                score: score,
+                updated_at: new Date().toISOString(),
+            }, { onConflict: 'user_id' }).then(({ error }) => {
+                if (error) console.warn('進捗保存エラー:', error.message);
+            });
+        }
+
+        async function loadResumePanel() {
+            const panel = document.getElementById('resume-panel');
+            if (!panel) return;
+            panel.classList.add('hidden');
+            savedProgress = null;
+            if (!currentUser) return;
+            const { data, error } = await window.supabase
+                .from('exam_progress')
+                .select('*')
+                .eq('user_id', currentUser.id)
+                .maybeSingle();
+            if (error || !data) return;
+            const total = (data.question_ids || []).length;
+            if (total === 0 || data.current_index >= total) return;
+            savedProgress = data;
+            const sectionName = data.section === 'all' ? '全セクション' : data.section;
+            const progressNo = Math.min(data.current_index + 1, total);
+            document.getElementById('resume-info').innerText =
+                `セクション: ${sectionName} / 進捗 ${progressNo} / ${total}問 / 正答 ${data.score}問（${new Date(data.updated_at).toLocaleString()}時点）`;
+            panel.classList.remove('hidden');
+        }
+
+        async function resumeExam() {
+            if (!savedProgress) return;
+            const ids = savedProgress.question_ids || [];
+            const qmap = new Map(questions.map(q => [q.id, q]));
+            const restored = ids.map(id => qmap.get(id)).filter(Boolean);
+            if (restored.length === 0) {
+                await discardProgress();
+                return;
+            }
+            currentQuestions = restored;
+            currentSectionValue = savedProgress.section;
+            currentSectionName = savedProgress.section === 'all' ? '全セクション（ランダム）' : savedProgress.section;
+            currentQuestionIndex = Math.min(savedProgress.current_index, restored.length);
+            score = savedProgress.score || 0;
+            savedProgress = null;
+
+            const panel = document.getElementById('resume-panel');
+            if (panel) panel.classList.add('hidden');
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('result-screen').classList.add('hidden');
+            document.getElementById('admin-screen').classList.add('hidden');
+            document.getElementById('exam-screen').classList.remove('hidden');
+            showQuestion();
+        }
+
+        async function discardProgress() {
+            savedProgress = null;
+            const panel = document.getElementById('resume-panel');
+            if (panel) panel.classList.add('hidden');
+            if (!currentUser) return;
+            const { error } = await window.supabase.from('exam_progress').delete().eq('user_id', currentUser.id);
+            if (error) console.warn('進捗破棄エラー:', error.message);
         }
 
         // ============================================================
@@ -576,10 +667,12 @@
 
             document.getElementById('explanation-text').innerText = q.explanation || '';
             document.getElementById('explanation-box').classList.remove('hidden');
+            saveProgress();
         }
 
         function nextQuestion() {
             currentQuestionIndex++;
+            saveProgress();
             showQuestion();
         }
 
@@ -596,6 +689,8 @@
                 `${currentSectionName}のテスト終了！\n正答率: ${percentage}%（${score} / ${total}）`;
 
             if (currentUser) {
+                // 試験完了: 途中経過を削除して、成績を保存
+                await window.supabase.from('exam_progress').delete().eq('user_id', currentUser.id);
                 const { error } = await window.supabase.from('scores').insert([
                     {
                         user_id: currentUser.id,
