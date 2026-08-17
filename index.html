@@ -79,21 +79,24 @@
             <p id="new-pw-msg" class="text-sm text-center text-red-500 mt-2"></p>
         </div>
 
+        <!-- 途中再開の選択画面 -->
+        <div id="resume-screen" class="hidden">
+            <div class="bg-white p-6 rounded-xl shadow-md text-center space-y-4">
+                <h2 class="text-2xl font-bold text-slate-700">前回の続きがあります</h2>
+                <p id="resume-info" class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3"></p>
+                <div class="space-y-2">
+                    <button onclick="resumeExam()" class="w-full bg-amber-500 text-white py-3 rounded-xl font-bold text-lg hover:bg-amber-600 transition shadow">続きから再開する</button>
+                    <button onclick="discardProgress()" class="w-full bg-white border border-slate-300 text-slate-600 py-3 rounded-xl font-medium hover:bg-slate-100 transition">破棄してセクション選択へ</button>
+                </div>
+                <button onclick="handleLogout()" class="text-xs text-slate-400 hover:text-slate-600 underline">ログアウト</button>
+            </div>
+        </div>
+
         <!-- 開始画面（ダッシュボード） -->
         <div id="start-screen" class="hidden space-y-6">
             <div class="bg-white p-6 rounded-xl shadow-md text-center space-y-4">
                 <h2 class="text-2xl font-bold text-slate-700">機械安全・リスクアセスメント編</h2>
                 <p class="text-sm text-slate-500">安全法規・リスクアセスメント・機械安全・作業環境・労働衛生の5分野250問の模擬試験です。</p>
-
-                <!-- 途中再開パネル -->
-                <div id="resume-panel" class="hidden bg-amber-50 border border-amber-300 rounded-xl p-4 text-left space-y-3">
-                    <h3 class="font-bold text-amber-800">前回の続きから再開できます</h3>
-                    <p id="resume-info" class="text-sm text-amber-700"></p>
-                    <div class="flex gap-2">
-                        <button onclick="resumeExam()" class="flex-1 bg-amber-500 text-white py-2 rounded-lg font-bold hover:bg-amber-600 transition">続きから再開する</button>
-                        <button onclick="discardProgress()" class="flex-1 bg-white border border-amber-400 text-amber-700 py-2 rounded-lg font-medium hover:bg-amber-100 transition">破棄して新規開始</button>
-                    </div>
-                </div>
 
                 <div class="text-left">
                     <label class="block text-sm font-medium text-slate-600 mb-1">出題セクション</label>
@@ -116,9 +119,10 @@
 
         <!-- 試験画面 -->
         <div id="exam-screen" class="hidden bg-white p-6 rounded-xl shadow-md space-y-4">
-            <div class="flex justify-between text-sm text-slate-400">
+            <div class="flex justify-between items-center text-sm text-slate-400">
                 <span id="question-progress">問題 1 / 5</span>
                 <span id="question-category">安全法規</span>
+                <button onclick="interruptExam()" class="text-xs bg-slate-100 border border-slate-300 text-slate-500 px-2 py-1 rounded hover:bg-slate-200 transition">中断して終了</button>
             </div>
             <h3 id="question-text" class="text-lg font-bold text-slate-800">問題文がここに入ります。</h3>
             <div id="options" class="space-y-2">
@@ -501,6 +505,7 @@
             document.getElementById('exam-screen').classList.add('hidden');
             document.getElementById('result-screen').classList.add('hidden');
             document.getElementById('admin-screen').classList.add('hidden');
+            document.getElementById('resume-screen').classList.add('hidden');
             document.getElementById('start-screen').classList.remove('hidden');
 
             const adminBtn = document.getElementById('admin-open-btn');
@@ -511,7 +516,12 @@
                     adminBtn.classList.add('hidden');
                 }
             }
-            loadResumePanel();
+
+            // 前回の途中経過があれば選択画面を表示
+            if (await checkResumeProgress()) {
+                document.getElementById('start-screen').classList.add('hidden');
+                document.getElementById('resume-screen').classList.remove('hidden');
+            }
         }
 
         // ============================================================
@@ -535,8 +545,8 @@
             currentQuestionIndex = 0;
             score = 0;
             savedProgress = null;
-            const resumePanel = document.getElementById('resume-panel');
-            if (resumePanel) resumePanel.classList.add('hidden');
+            const resumeScreen = document.getElementById('resume-screen');
+            if (resumeScreen) resumeScreen.classList.add('hidden');
             saveProgress();
 
             document.getElementById('start-screen').classList.add('hidden');
@@ -551,8 +561,8 @@
         // 途中経過の保存・再開（中断しても次回続きから）
         // ============================================================
         function saveProgress() {
-            if (!currentUser) return;
-            window.supabase.from('exam_progress').upsert({
+            if (!currentUser) return Promise.resolve();
+            return window.supabase.from('exam_progress').upsert({
                 user_id: currentUser.id,
                 section: currentSectionValue,
                 question_ids: currentQuestions.map(q => q.id),
@@ -564,26 +574,34 @@
             });
         }
 
-        async function loadResumePanel() {
-            const panel = document.getElementById('resume-panel');
-            if (!panel) return;
-            panel.classList.add('hidden');
-            savedProgress = null;
-            if (!currentUser) return;
+        async function checkResumeProgress() {
+            if (!currentUser) return false;
             const { data, error } = await window.supabase
                 .from('exam_progress')
                 .select('*')
                 .eq('user_id', currentUser.id)
                 .maybeSingle();
-            if (error || !data) return;
+            if (error || !data) return false;
             const total = (data.question_ids || []).length;
-            if (total === 0 || data.current_index >= total) return;
+            if (total === 0 || data.current_index >= total) return false;
             savedProgress = data;
             const sectionName = data.section === 'all' ? '全セクション' : data.section;
             const progressNo = Math.min(data.current_index + 1, total);
             document.getElementById('resume-info').innerText =
                 `セクション: ${sectionName} / 進捗 ${progressNo} / ${total}問 / 正答 ${data.score}問（${new Date(data.updated_at).toLocaleString()}時点）`;
-            panel.classList.remove('hidden');
+            return true;
+        }
+
+        // 中断ボタン: 進捗を保存して選択画面へ戻る
+        async function interruptExam() {
+            if (currentUser) await saveProgress();
+            savedProgress = null;
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('exam-screen').classList.add('hidden');
+            document.getElementById('result-screen').classList.add('hidden');
+            document.getElementById('admin-screen').classList.add('hidden');
+            document.getElementById('resume-screen').classList.remove('hidden');
+            await checkResumeProgress();
         }
 
         async function resumeExam() {
@@ -602,22 +620,21 @@
             score = savedProgress.score || 0;
             savedProgress = null;
 
-            const panel = document.getElementById('resume-panel');
-            if (panel) panel.classList.add('hidden');
             document.getElementById('start-screen').classList.add('hidden');
             document.getElementById('result-screen').classList.add('hidden');
             document.getElementById('admin-screen').classList.add('hidden');
+            document.getElementById('resume-screen').classList.add('hidden');
             document.getElementById('exam-screen').classList.remove('hidden');
             showQuestion();
         }
 
         async function discardProgress() {
             savedProgress = null;
-            const panel = document.getElementById('resume-panel');
-            if (panel) panel.classList.add('hidden');
             if (!currentUser) return;
             const { error } = await window.supabase.from('exam_progress').delete().eq('user_id', currentUser.id);
             if (error) console.warn('進捗破棄エラー:', error.message);
+            document.getElementById('resume-screen').classList.add('hidden');
+            document.getElementById('start-screen').classList.remove('hidden');
         }
 
         // ============================================================
@@ -714,6 +731,7 @@
             document.getElementById('result-screen').classList.add('hidden');
             document.getElementById('exam-screen').classList.add('hidden');
             document.getElementById('admin-screen').classList.add('hidden');
+            document.getElementById('resume-screen').classList.add('hidden');
             document.getElementById('start-screen').classList.remove('hidden');
         }
 
@@ -990,6 +1008,7 @@
                         document.getElementById('exam-screen').classList.add('hidden');
                         document.getElementById('result-screen').classList.add('hidden');
                         document.getElementById('admin-screen').classList.add('hidden');
+                        document.getElementById('resume-screen').classList.add('hidden');
                         document.getElementById('reset-new-pw-screen').classList.remove('hidden');
                         return;
                     }
@@ -1012,6 +1031,7 @@
                         document.getElementById('exam-screen').classList.add('hidden');
                         document.getElementById('result-screen').classList.add('hidden');
                         document.getElementById('admin-screen').classList.add('hidden');
+                        document.getElementById('resume-screen').classList.add('hidden');
                         document.getElementById('user-info').innerText = '';
                     }
                 });
