@@ -191,6 +191,7 @@
         // ============================================================
         let currentQuestionIndex = 0;
         let score = 0;
+        let answeredIds = new Set(); // 回答済み問題ID（中断→再開時の二重加算防止）
         let currentQuestions = [];
         let currentSectionName = "全セクション";
         let currentSectionValue = "all";
@@ -544,6 +545,7 @@
 
             currentQuestionIndex = 0;
             score = 0;
+            answeredIds = new Set();
             savedProgress = null;
             const resumeScreen = document.getElementById('resume-screen');
             if (resumeScreen) resumeScreen.classList.add('hidden');
@@ -568,6 +570,7 @@
                 question_ids: currentQuestions.map(q => q.id),
                 current_index: currentQuestionIndex,
                 score: score,
+                answered_ids: [...answeredIds],
                 updated_at: new Date().toISOString(),
             }, { onConflict: 'user_id' }).then(({ error }) => {
                 if (error) console.warn('進捗保存エラー:', error.message);
@@ -618,7 +621,15 @@
             currentSectionName = savedProgress.section === 'all' ? '全セクション（ランダム）' : savedProgress.section;
             currentQuestionIndex = Math.min(savedProgress.current_index, restored.length);
             score = savedProgress.score || 0;
+            answeredIds = new Set(savedProgress.answered_ids || []);
             savedProgress = null;
+
+            // 回答済みの問題はスキップ（中断→再開で同じ問題を再回答してスコアが二重加算されるのを防ぐ）
+            while (currentQuestionIndex < currentQuestions.length &&
+                   answeredIds.has(currentQuestions[currentQuestionIndex].id)) {
+                currentQuestionIndex++;
+            }
+            score = Math.min(score, currentQuestions.length);
 
             document.getElementById('start-screen').classList.add('hidden');
             document.getElementById('result-screen').classList.add('hidden');
@@ -667,6 +678,7 @@
 
         function checkAnswer(selectedIndex, correctIndex) {
             const q = currentQuestions[currentQuestionIndex];
+            if (answeredIds.has(q.id)) return; // 再回答による二重加算の防止
             const buttons = document.getElementById('options').children;
 
             for (let i = 0; i < buttons.length; i++) {
@@ -681,6 +693,7 @@
             if (selectedIndex === correctIndex) {
                 score++;
             }
+            answeredIds.add(q.id);
 
             document.getElementById('explanation-text').innerText = q.explanation || '';
             document.getElementById('explanation-box').classList.remove('hidden');
@@ -701,9 +714,10 @@
             document.getElementById('result-screen').classList.remove('hidden');
 
             const total = currentQuestions.length;
-            const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
+            const safeScore = Math.min(score, total); // 防衛: スコアが総問数を超えないよう表示・保存とも抑止
+            const percentage = total > 0 ? Math.round((safeScore / total) * 100) : 0;
             document.getElementById('score-text').innerText =
-                `${currentSectionName}のテスト終了！\n正答率: ${percentage}%（${score} / ${total}）`;
+                `${currentSectionName}のテスト終了！\n正答率: ${percentage}%（${safeScore} / ${total}）`;
 
             if (currentUser) {
                 // 試験完了: 途中経過を削除して、成績を保存
@@ -711,7 +725,7 @@
                 const { error } = await window.supabase.from('scores').insert([
                     {
                         user_id: currentUser.id,
-                        score: score,
+                        score: safeScore,
                         total: total,
                         section: currentSectionName
                     }
